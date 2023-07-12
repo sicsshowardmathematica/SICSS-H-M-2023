@@ -1,0 +1,67 @@
+---
+title: "Average Polls by Day"
+author: "Todd"
+date: "6/30/2023"
+output: html_document
+---
+This script aggregates the polling data to the day level to make it easier to use. 
+We apply each poll to every day it covers (from start date to end date) 
+and then take the average approval or favorability rating for each day. 
+
+```{r setup, include=FALSE}
+# Change this to your working directory
+knitr::opts_knit$set(root.dir = '/Users/todd/Library/CloudStorage/Box-Box/Research & PhD Documentation/SICSS/2023/data/')
+```
+
+```{r}
+library(pacman) 
+pacman::p_load(dplyr, ggplot2, anytime, stringr, tidyr, tidytext, xml2, readxl, stringr)
+```
+
+```{r}
+approval <- read.csv("vp_approval_polls_FiveThirtyEight.csv")
+
+# Do a weighted average of the polls per day. 
+approval2 <- approval %>%
+  mutate(counter = 1, # Variable to count days between start and end
+         firstday = as.Date(start_date, "%m/%d/%y"), 
+         lastday = as.Date(end_date, "%m/%d/%y"),
+         # Get the duration of the poll
+         duration = (as.numeric(lastday - firstday) + 1)) %>%
+  # Uncount duplicates rows based on the duration of the poll
+  uncount(duration) %>%
+  # Within each unique poll,
+  group_by(poll_id, question_id) %>%
+  # Add the cumulative days to the start date, so each row represents a poll day
+  mutate(counter = cumsum(counter) - 1, 
+         date = firstday + counter) %>%
+  # Now collapse the dataset by day to get an average approval rating per day
+  group_by(date) %>%
+  summarise_at(vars(yes,no,alternate_answers), list(avg=mean))
+
+# Do likewise for favorability:
+favorability <- read_xlsx("vp_favorability_RealClearPolitics_20230603.xlsx") 
+
+favorability2 <- favorability %>%
+  separate(col = Date, into = c("firstday", "lastday"), sep = " - ") %>%
+  mutate(counter = 1, # Variable to count days between start and end, 
+         firstday = anydate(str_trim(paste0(firstday,"/",Year))),
+         lastday = anydate(str_trim(paste0(lastday,"/",Year))),
+         duration = ((lastday - firstday) + 1)) %>%
+  # Correct duration for polls that cross between years
+  mutate(lastday = case_when(duration <= 0 ~ lastday + 365,
+                              duration > 0 ~ lastday),
+         duration = case_when(duration <= 0 ~ duration + 365,
+                              duration > 0 ~ duration)) %>%
+  # Uncount duplicates rows based on the duration of the poll
+  uncount(as.integer(duration)) %>%
+  # Within each unique poll,
+  group_by(Poll, firstday, lastday) %>%
+  # Add the cumulative days to the start date, so each row represents a poll day
+  mutate(counter = cumsum(counter) - 1, 
+         date = firstday + counter) %>%
+  # Now collapse the dataset by day to get an average approval rating per day
+  group_by(date) %>%
+  summarise_at(vars(Favorable,Unfavorable), list(avg=mean))
+
+```
